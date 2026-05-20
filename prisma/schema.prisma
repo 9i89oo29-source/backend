@@ -1,0 +1,262 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrderStatus {
+  PENDING
+  RECEIVED
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum SubscriptionTier {
+  FREE
+  BASIC
+  PREMIUM
+  ENTERPRISE
+}
+
+enum BanType {
+  TEMP
+  PERMANENT
+}
+
+model User {
+  id            String           @id @default(uuid())
+  telegramId    BigInt?          @unique
+  username      String?
+  firstName     String?
+  lastName      String?
+  languageCode  String           @default("ar")
+  role          UserRole         @default(USER)
+  balance       Decimal          @default(0) @db.Decimal(10, 2)
+  subscription  SubscriptionTier @default(FREE)
+  isBanned      Boolean          @default(false)
+  banReason     String?
+  bannedUntil   DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  deletedAt     DateTime?
+
+  devices       Device[]
+  orders        Order[]
+  transactions  Transaction[]
+  bans          Ban[]
+
+  @@index([telegramId])
+  @@index([role])
+  @@map("users")
+}
+
+model Device {
+  id           String   @id @default(uuid())
+  fingerprint  String   @unique
+  deviceId     String
+  appSignature String?
+  installDate  DateTime
+  lastSeen     DateTime @default(now())
+  isVerified   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id])
+
+  @@index([fingerprint])
+  @@index([userId])
+  @@map("devices")
+}
+
+model Provider {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  slug      String   @unique
+  baseUrl   String
+  apiKey    String
+  secret    String?
+  isActive  Boolean  @default(true)
+  priority  Int      @default(1)
+  balance   Decimal  @default(0) @db.Decimal(10, 2)
+  lastCheck DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  services  Service[]
+  orders    Order[]
+
+  @@index([slug])
+  @@index([isActive])
+  @@map("providers")
+}
+
+model Service {
+  id              String   @id @default(uuid())
+  providerServiceId String
+  name            String
+  price           Decimal  @db.Decimal(10, 2)
+  isAvailable     Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  providerId      String
+  provider        Provider @relation(fields: [providerId], references: [id])
+
+  orders          Order[]
+
+  @@unique([providerId, providerServiceId])
+  @@index([isAvailable])
+  @@index([providerId])
+  @@map("services")
+}
+
+model Country {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  nameAr    String
+  flag      String
+  dialCode  String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders    Order[]
+
+  @@index([isActive])
+  @@map("countries")
+}
+
+model Order {
+  id              String      @id @default(uuid())
+  externalOrderId String?
+  phoneNumber     String?
+  status          OrderStatus @default(PENDING)
+  smsCode         String?
+  smsReceivedAt   DateTime?
+  expiresAt       DateTime?
+  cancelledAt     DateTime?
+  price           Decimal     @db.Decimal(10, 2)
+  providerFee     Decimal     @default(0) @db.Decimal(10, 2)
+  retryCount      Int         @default(0)
+  lastPollAt      DateTime?
+  metadata        Json?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  userId          String
+  user            User        @relation(fields: [userId], references: [id])
+  serviceId       String
+  service         Service     @relation(fields: [serviceId], references: [id])
+  countryId       String
+  country         Country     @relation(fields: [countryId], references: [id])
+  providerId      String
+  provider        Provider    @relation(fields: [providerId], references: [id])
+
+  smsMessages     SmsMessage[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([externalOrderId])
+  @@index([expiresAt])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model SmsMessage {
+  id          String   @id @default(uuid())
+  orderId     String
+  sender      String?
+  message     String
+  code        String?
+  receivedAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  order       Order    @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+  @@map("sms_messages")
+}
+
+model Transaction {
+  id          String   @id @default(uuid())
+  amount      Decimal  @db.Decimal(10, 2)
+  type        String
+  description String?
+  reference   String?
+  createdAt   DateTime @default(now())
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("transactions")
+}
+
+model Subscription {
+  id        String           @id @default(uuid())
+  tier      SubscriptionTier
+  userId    String           @unique
+  user      User             @relation(fields: [userId], references: [id])
+  startDate DateTime         @default(now())
+  endDate   DateTime?
+  isActive  Boolean          @default(true)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@map("subscriptions")
+}
+
+model Ban {
+  id        String   @id @default(uuid())
+  type      BanType
+  reason    String?
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("bans")
+}
+
+model ApiKey {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  name      String
+  isActive  Boolean  @default(true)
+  lastUsed  DateTime?
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([key])
+  @@map("api_keys")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String
+  entity    String
+  entityId  String?
+  details   Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([action])
+  @@index([entity])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
